@@ -1,0 +1,113 @@
+clc;
+clear all;
+close all;
+%% Eb = Es1 * Ps1 + Es2 * Ps2
+% Ps1 = P(1) = 3/5 ; Ps2 = P(0) = 2/5
+
+Eb_accepted = 1; % Calculations made according to this acceptance
+Ps1 = 3/5; % Probability of occurrence - s1
+Ps2 = 2/5; % Probability of occurrence - s2
+
+% Symbols
+syms A T t % Parameters for parametric calculations
+s1 = A * (1 - abs(t - T/2) / (T/2));
+s2 = - A * (1 - abs(t - 3*T/2) / (T/2));
+
+% Parametric energies of symbols
+Es1_sym = int(power(s1, 2), t, 0, T);     % (A^2*T)/3
+Es2_sym = int(power(s2, 2), t, T, 2*T);   % (A^2*T)/3
+
+% Parametric calculation of Eb
+Eb = Es1_sym * Ps1 + Es2_sym * Ps2;       % (A^2*T)/3
+eq = Eb == Eb_accepted;                   % (A^2*T) = 3
+
+% Numerical energies of symbols
+Es1_num = subs(Es1_sym, power(A,2)*T, 3); % 1
+Es2_num = subs(Es2_sym, power(A,2)*T, 3); % 1
+
+%% z = ai + n
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% At receiver, output of the filter gives a signal which can be  
+% decomposed in terms of deterministic ai and colored noise, n0.
+%
+% Therefore calculations of ai (i = 1, 2) are processed.
+%
+% ai = int[si(t) * (s1(t) - s2(t))], [0, 2T].
+% 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+a1_sym = int((s1*s1), t, [0, T]);         % (A^2*T)/3
+a2_sym = int((-s2*s2), t, [T, 2*T]);      % -(A^2*T)/3
+
+a1_num = subs(a1_sym, power(A,2)*T, 3);   % 1
+a2_num = subs(a2_sym, power(A,2)*T, 3);   % -1
+
+%%  BER Curve Depending on Theorical Values
+% Impulse response of filter and bit error rate
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% The impulse response of filter is:
+% h(t) = s1(T-t) - s2(T-t).
+%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+h1_sym = A * (1 - abs(t - T/2) / (T/2));
+h2_sym = A * (1 - abs(t + T/2) / (T/2));
+h_sym = h1_sym + h2_sym;
+
+Eh_sym = int(power(h1_sym, 2),t,[0,T]) + int(power(h2_sym, 2),t,[-T,0]);
+                                           % (2*A^2*T)/3
+Eh_num = subs(Eh_sym, power(A,2)*T, 3);    % 2
+
+snr_range = 0: 15;
+snr_range_lin = 10.^(snr_range./10);
+
+no = 1./snr_range_lin;
+pb = qfunc((1-no./2.*log(3/2))./sqrt(no)) .* (3./5) + ...
+     qfunc((1+no./2.*log(3/2))./sqrt(no)) .* (2./5);
+
+figure(1)
+semilogy(snr_range, pb, "m--o");
+
+%% BER Curve Depending on Simulation 
+
+threshold = no .* log(3./2);
+
+pb_s = zeros(1, length(snr_range)); % setting off BER curve with zeros.
+
+for i = 1:length(snr_range)
+    n_bit = 10.^6;
+    message_s = randsrc(n_bit, 1, [1, 0; 3/5, 2/5]); 
+    % Set occurence of 1 as 3/5; 
+    % Set occurence of 0 as 2/5
+
+    a_s = message_s + ~message_s .* (-1);
+    % Replace each bit with their ai values, respectively
+
+    no_s = sqrt(no(1, i)) .* randn(n_bit, 1);
+
+    z_s = a_s + no_s;
+    % z composed of deterministic ai and colored noise, n0
+
+    dec_s= zeros(n_bit, 1);
+
+    cnt = 0; 
+    for j = 1: n_bit
+        if z_s(j, 1) > threshold(1, i)
+            dec_s(j, 1) = 1; % If z > threshold, then set bit as 1
+        end
+    end
+    for j = 1: n_bit
+        if message_s(j, 1) ~= dec_s(j, 1)
+            cnt = cnt + 1; % Count of how many bits are different
+        end
+    end
+    pb_s(i) = cnt/n_bit;
+end
+
+hold on;
+semilogy(snr_range, pb_s, "c--s")
+xlabel("SNR (E_b / N_o, dB)")
+ylabel("Bit Error Rate")
+legend('Theoretical BER','Simulated BER')
